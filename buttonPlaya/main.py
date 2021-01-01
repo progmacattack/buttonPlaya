@@ -13,8 +13,12 @@ while True:
         redLed.toggle()
         if redLed.is_lit:
             blueLed.off()
-            playa.playPlaylist("bach.m3u")
+            if playa.canContinuePlaylist("bach.m3u"):
+                playa.continuePlaylist("bach.m3u")
+            else: 
+                playa.playPlaylist("bach.m3u")
         else:
+            playa.pausePlaylist("bach.m3u")
             playa.stop()
         sleep(0.7)
     if blueButton.is_pressed:
