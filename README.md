@@ -14,7 +14,7 @@ Use my raspberry pi to play an m3u playlist and light LED when a button is pushe
 (note the '&' starts it in a separate thread)
 
 ### To do
-- Add pause functionality
+~~- Add pause functionality~~
 - Have LED blink while playlist is being loaded
 
 ### Run before adding to rc.local
