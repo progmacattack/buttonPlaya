@@ -3,14 +3,33 @@ import json
 from time import sleep
 
 class PlaylistPosition:
-    def __init__(self, playlist, track, timePosition):
-        self.track = track
+    def __init__(self, playlist, trackUri, timePosition):
+        self.trackUri = trackUri
         self.timePosition = timePosition
         self.playlist = playlist
+    
+    def __str__(self):
+        return ("Playlist: " + self.playlist +
+                "Track URI: " + self.trackUri +
+                "Time position: " + str(self.timePosition))
+
+class LoadedTracks:
+    def __init__(self):
+        self.tracksToTrackIds = {}
+
+    def updateLoadedTracks(self, addTracklistResult):
+        for result in addTracklistResult:
+            self.tracksToTrackIds[result['track']['uri']] = result['tlid']
+        
+
+    def getTrackIdByTrackUri(self, trackUri):
+        return self.tracksToTrackIds[trackUri]
+
 
 class Playa:
     def __init__(self):
         self.mopidyUrl = "http://localhost:6680/mopidy/rpc"
+        self.loadedTracks = LoadedTracks()
         self.playlistPositions = {}
 
     """ Get m3u playlists """
@@ -31,7 +50,9 @@ class Playa:
 
     def __loadTracks(self, uris):
         payload = {"jsonrpc": "2.0", "id": 1, "method": "core.tracklist.add", "params":{"uris": uris}}
-        requests.post(self.mopidyUrl, json=payload)
+        response = requests.post(self.mopidyUrl, json=payload)
+        addTracklistResult = json.loads(response.text)['result']
+        self.loadedTracks.updateLoadedTracks(addTracklistResult)
 
     def __play(self):
         payload = {"jsonrpc": "2.0", "id": 1, "method": "core.playback.play"}
@@ -54,11 +75,12 @@ class Playa:
         payload = {"jsonrpc": "2.0", "id": 1, "method": "core.tracklist.clear"}
         requests.post(self.mopidyUrl, json=payload)
 
-    """ Get currently playing track as mopidy tl track """
-    def __getCurrentTrack(self):
+    """ Get file uri for currently playing track """
+    def __getCurrentTrackUri(self):
         payload = {"jsonrpc": "2.0", "id": 1, "method": "core.playback.get_current_tl_track"}
         r = requests.post(self.mopidyUrl, json=payload)
-        return json.loads(r.text)['result']['track']
+        trackUri = json.loads(r.text)['result']['track']['uri']
+        return str(trackUri)
 
     """ Get current time position within track in milliseconds """
     def __getCurrentTimePosition(self):
@@ -72,14 +94,15 @@ class Playa:
         requests.post(self.mopidyUrl, json=payload)
 
     """ Load the provided tl track model """
-    def __setTrack(self, playPosition):
-        payload = {"jsonrpc": "2.0", "id": 1, "method": "core.playback.play", "params":{"tl_track": playPosition.track}}
-        requests.post(self.mopidyUrl, json=payload)
+    def __setTrack(self, trackUri):
+        tlTrackId = self.loadedTracks.getTrackIdByTrackUri(trackUri)
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "core.playback.play", "params":{"tlid": tlTrackId}}
+        r = requests.post(self.mopidyUrl, json=payload)
 
     """ Set the current track to the provided position in milliseconds """
     def __setTrackPosition(self, playPosition):
         payload = {"jsonrpc": "2.0", "id": 1, "method": "core.playback.seek", "params":{"time_position": playPosition.timePosition}}
-        requests.post(self.mopidyUrl, json=payload)
+        r = requests.post(self.mopidyUrl, json=payload)
 
     """ Pass name of playlist located in /home/pi/mopidy/playlists. For example, "bach.m3u" """
     def playPlaylist(self, m3uName):
@@ -93,28 +116,25 @@ class Playa:
     """ Pause a playlist, saving state for later continuation """
     def pausePlaylist(self, m3uName):
         self.__pause()
-        track = self.__getCurrentTrack()
-        print("Current track is: " + json.dumps(track))
+        trackUri = self.__getCurrentTrackUri()
         timePosition = self.__getCurrentTimePosition()
-        print("Current time is: " + str(timePosition))
-        playlistPosition = PlaylistPosition(m3uName, track, timePosition)
+        playlistPosition = PlaylistPosition(m3uName, trackUri, timePosition)
         self.playlistPositions[m3uName] = playlistPosition
-        self.__pause()
 
     """ Continue a playlist from the last known track and position """
     def continuePlaylist(self, m3uName):
         playlistPosition = self.playlistPositions[m3uName]
-        self.__setVolume(0)
-        self.playPlaylist(m3uName)
-        self.__setTrack(playlistPosition)
-        sleep(0.1)
+        self.__clearTracks()
+        urisFromPlaylist = self.__getTrackUrisFromPlaylist(m3uName)
+        self.__loadTracks(urisFromPlaylist)
+        self.__setRepeat(True)
+        self.__setTrack(playlistPosition.trackUri)
+        sleep(0.05)
         self.__setTrackPosition(playlistPosition)
         self.__setVolume(100)
-        self.__play()
         
     def canContinuePlaylist(self, m3uName):
         if m3uName in self.playlistPositions:
-            print(m3uName + " is in the playlist position dictionary")
             return True
         else:
             return False
